@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use EchoTrace, please cite it as below."
+title: "EchoTrace: finding hidden patient overlap in medical imaging datasets"
+authors:
+  - family-names: Ghosh
+    given-names: Arittra
+    affiliation: "Bunclody Community College, Co. Wexford, Ireland"
+version: "2.4"
+date-released: 2026-11-16
+license: MIT
+repository-code: "https://github.com/ghosharittra85-code/echotrace"
+keywords:
+  - data leakage
+  - medical imaging
+  - train/test split
+  - dataset audit
+  - reproducibility

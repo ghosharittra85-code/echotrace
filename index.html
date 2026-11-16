@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>EchoTrace</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7.2' fill='%2314212B'/%3E%3Cg transform='translate(1.043 7.923) scale(0.2991)' fill='none' stroke-linecap='round' stroke-linejoin='round' stroke-width='10.7'%3E%3Cpath d='M4 44 H13 L23 10 L33 44 H40' stroke='%23F4F7F8'/%3E%3Cpath d='M60 44 H67 L77 10 L87 44 H96' stroke='%23F5475C'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+/* Layout: a radiology reading desk. Left, the question and the one control; right, cases checked so far.
+   Results read like an instrument printout: the readout first, then the echo trace, then the lightbox of matched scans. */
+:root{
+  --bg:#E6ECEF;          /* lightbox white, cooled */
+  --surface:#F4F7F8;
+  --glow:#FAFCFD;        /* the lit panel behind the films */
+  --ink:#14212B;         /* film base */
+  --ink-2:#435360;
+  --ink-3:#6C7B86;
+  --rule:#C5CFD6;
+  --film:#040607;
+  --red:#B5122B;         /* colour Doppler: flow toward the probe, used for a near-copy */
+  --blue:#1B57AE;        /* colour Doppler: flow away, used for controls and the cut-off */
+  --clear:#2B7A57;
+  --on-blue:#FFFFFF;
+  --font-display:'Archivo','Arial Narrow',system-ui,sans-serif;
+  --font-body:'Atkinson Hyperlegible','Segoe UI',system-ui,-apple-system,sans-serif;
+  --font-file:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E161C;--surface:#141F27;--glow:#1A2833;--ink:#E2E9EE;--ink-2:#A7B5BF;--ink-3:#7A8995;
+    --rule:#283742;--film:#000000;--red:#FF6476;--blue:#7AAEF2;--clear:#62C79A;--on-blue:#0E161C;color-scheme:dark}
+}
+:root[data-theme="dark"]{
+  --bg:#0E161C;--surface:#141F27;--glow:#1A2833;--ink:#E2E9EE;--ink-2:#A7B5BF;--ink-3:#7A8995;
+  --rule:#283742;--film:#000000;--red:#FF6476;--blue:#7AAEF2;--clear:#62C79A;--on-blue:#0E161C;color-scheme:dark}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.55;min-height:100%}
+.file{font-family:var(--font-file);font-size:.86em;font-variant-ligatures:none}
+h1,h2,h3{text-wrap:balance}
+.wrap{max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+button:focus-visible,label:focus-within{outline:2px solid var(--blue);outline-offset:3px}
+
+/* masthead: the echo-trace mark and the wordmark */
+header{padding-block:22px 18px;border-bottom:1px solid var(--rule)}
+.mast{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.mark{width:60px;height:27px;flex:none}
+.mark path{fill:none;stroke:var(--ink);stroke-width:7.5;stroke-linejoin:round;stroke-linecap:round}
+.mark .twin{stroke:var(--red)}
+.mark .split{stroke:var(--ink-3);stroke-width:2.4;stroke-dasharray:5.3 5.3;stroke-linecap:round}
+.rephead .mark{display:block;margin-bottom:8px}
+.word{font-family:var(--font-display);font-stretch:118%;font-weight:800;font-size:22px;letter-spacing:-.01em}
+.tag{color:var(--ink-2);font-size:14px;max-width:62ch;flex:1 1 320px}
+
+/* start */
+.start{padding-block:44px 28px;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.9fr);gap:52px}
+.start > *{min-width:0}
+.q{font-family:var(--font-display);font-stretch:112%;font-weight:750;font-size:clamp(28px,4.2vw,42px);line-height:1.08;letter-spacing:-.022em;max-width:17ch}
+.trace{margin-block:26px 6px;width:100%;max-width:640px}
+.trace svg{display:block;width:100%;height:auto;overflow:visible}
+.trace .base{fill:none;stroke:var(--ink);stroke-width:1.6;stroke-linejoin:round}
+.trace .echo{fill:none;stroke:var(--red);stroke-width:2;stroke-linejoin:round}
+.trace .link{fill:none;stroke:var(--red);stroke-width:1.2;stroke-dasharray:3 4}
+.trace text{fill:var(--ink-3);font:13px var(--font-body)}
+.trace text.hot{fill:var(--red)}
+.trace .divider{stroke:var(--rule);stroke-width:1.2}
+@media (prefers-reduced-motion:no-preference){
+  .trace .base,.trace .echo{stroke-dasharray:1400;stroke-dashoffset:0;animation:draw 1.8s ease-out both}
+  .trace .echo{animation-delay:.25s}
+  @keyframes draw{from{stroke-dashoffset:1400}to{stroke-dashoffset:0}}
+}
+.lede{color:var(--ink-2);margin-top:14px;max-width:58ch}
+.pick{margin-top:24px;display:inline-flex;align-items:center;gap:10px;background:var(--blue);color:var(--on-blue);
+  border:none;border-radius:3px;padding:14px 22px;font:700 16px var(--font-body);cursor:pointer;box-shadow:0 2px 0 var(--ink)}
+.pick:hover{filter:brightness(1.08)}
+.pick:active{transform:translateY(1px);box-shadow:0 1px 0 var(--ink)}
+.pick svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8}
+.opt{display:flex;gap:10px;align-items:flex-start;margin-top:18px;font-size:14px;color:var(--ink-2);max-width:58ch;cursor:pointer}
+.opt input{margin-top:4px;accent-color:var(--blue);width:16px;height:16px;flex:none}
+.opt b{color:var(--ink)}
+.picks{margin-top:24px;display:flex;flex-wrap:wrap;gap:10px}
+.picks .pick{margin-top:0}
+.pick.alt{background:transparent;color:var(--blue);box-shadow:inset 0 0 0 1.5px var(--blue)}
+.droptip{margin-top:10px;font-size:13.5px;color:var(--ink-3)}
+body.dragging .start{outline:2px dashed var(--blue);outline-offset:8px;border-radius:12px}
+.privacy{margin-top:12px;font-size:13.5px;color:var(--ink-3);max-width:56ch}
+.err{color:var(--red);margin-top:16px;font-weight:700}
+.layout{margin-top:30px;border-top:1px solid var(--rule);padding-top:14px;display:grid;gap:10px;max-width:60ch}
+.layout h2{font-family:var(--font-display);font-stretch:105%;font-size:15px;font-weight:700}
+.layout dl{display:grid;grid-template-columns:150px 1fr;gap:8px 16px;font-size:14px}
+.layout dt{color:var(--ink);font-weight:700}
+.layout dd{color:var(--ink-2)}
+
+.cases{background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:20px 22px 6px;align-self:start}
+.cases h2{font-family:var(--font-display);font-stretch:105%;font-size:16px;font-weight:700;margin-bottom:4px}
+.cases > p{font-size:13.5px;color:var(--ink-3);margin-bottom:6px}
+.case{border-top:1px solid var(--rule);padding-block:14px}
+.case-name{font-size:14px;color:var(--ink-2)}
+.case-big{font-family:var(--font-display);font-stretch:108%;font-weight:800;font-size:32px;line-height:1.1;letter-spacing:-.02em;color:var(--red);font-variant-numeric:tabular-nums;margin-top:2px}
+.case-big.good{color:var(--ink)}
+.case p{font-size:14px;color:var(--ink-2);margin-top:3px}
+
+/* working */
+.working{padding-block:70px;display:none}
+.working.on{display:block}
+.count{font-family:var(--font-display);font-stretch:110%;font-size:44px;font-weight:800;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+.count em{font-style:normal;color:var(--ink-3);font-size:18px;font-weight:400;font-family:var(--font-body);font-stretch:100%}
+.phase{color:var(--ink-2);margin-top:4px;font-size:15px}
+.track{height:3px;background:var(--rule);margin-top:22px;max-width:540px;overflow:hidden;border-radius:2px}
+.fill{height:100%;background:var(--blue);width:0;transition:width .18s linear}
+
+/* results */
+.results{display:none;padding-block:40px 30px}
+.results.on{display:block}
+.rephead{display:none}
+.readout{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 30px;align-items:end;border-bottom:2px solid var(--ink);padding-bottom:22px}
+.rate{font-family:var(--font-display);font-stretch:115%;font-size:clamp(52px,9vw,88px);line-height:.95;font-weight:850;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.verdict.hit .rate{color:var(--red)}
+.verdict.ok .rate{color:var(--clear)}
+.rate-sub{color:var(--ink-2);max-width:62ch;min-width:0}
+.rate-sub b{color:var(--ink)}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.pill{font-size:13px;color:var(--ink-2);background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:3px 9px}
+.pill b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+.block{margin-top:44px}
+.bh{display:flex;align-items:baseline;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:8px}
+.bt{font-family:var(--font-display);font-stretch:108%;font-size:20px;font-weight:750;letter-spacing:-.01em}
+.bn{color:var(--ink-3);font-size:14px;max-width:62ch}
+.chart{margin-top:6px;overflow-x:auto}
+.chart svg{display:block;width:100%;min-width:520px;height:auto}
+.chart-note{font-size:14px;color:var(--ink-2);margin-top:8px;max-width:72ch}
+.big2{font-family:var(--font-display);font-stretch:110%;font-size:42px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.05}
+.big2.hit{color:var(--red)}
+.big2.quiet{color:var(--ink-3)}
+.duo{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:26px;margin-top:10px;max-width:800px}
+.duo > div{min-width:0}
+.duo p{font-size:14px;color:var(--ink-2);margin-top:4px}
+
+/* the lightbox */
+.lightbox{background:var(--glow);border:1px solid var(--rule);border-radius:4px;padding:6px 18px;box-shadow:inset 0 0 40px rgba(127,160,185,.18)}
+.pair{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:stretch;padding-block:16px;border-bottom:1px solid var(--rule)}
+.pair:last-child{border-bottom:none}
+.lightbox .pair{max-width:880px;margin-inline:auto}
+.side{min-width:0;position:relative}
+.side.b{text-align:right}
+.frame{background:var(--film);border-radius:2px;aspect-ratio:4/3;overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative;max-width:100%}
+.frame img{width:100%;height:100%;object-fit:contain;display:block}
+.marker{position:absolute;top:8px;left:8px;font:700 12px var(--font-display);font-stretch:100%;padding:2px 7px;border-radius:2px;background:var(--glow);color:var(--ink);border:2px solid currentColor}
+.side.b .marker{left:auto;right:8px}
+.marker.train{color:var(--blue)}
+.marker.test{color:var(--red)}
+.meta{margin-top:8px;font-size:13px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grp{color:var(--ink-3);font-size:12.5px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gap{display:flex;flex-direction:column;align-items:center;justify-content:center;padding-inline:22px;min-width:120px}
+.gap-n{font-family:var(--font-display);font-stretch:110%;font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.gap-n.hit{color:var(--red)}
+.gap-l{font-size:12px;color:var(--ink-3);margin-top:3px;text-align:center}
+.gap-bar{width:2px;flex:1;background:var(--rule);margin-block:10px;min-height:18px}
+.more{margin-top:14px;color:var(--ink-3);font-size:14px}
+
+table{border-collapse:collapse;width:100%;max-width:780px;font-size:15px;margin-top:4px}
+.tw{overflow-x:auto}
+th{text-align:left;font-weight:700;color:var(--ink-3);padding:8px 20px 8px 0;font-size:13.5px;border-bottom:1px solid var(--ink)}
+th:not(:first-child),td:not(:first-child){text-align:right}
+td{padding:8px 20px 8px 0;border-bottom:1px solid var(--rule);font-variant-numeric:tabular-nums;color:var(--ink-2)}
+tr.key td{color:var(--ink);font-weight:700}
+.tnote{font-size:14px;color:var(--ink-2);max-width:70ch;margin-top:10px}
+
+.btn{display:inline-flex;align-items:center;gap:8px;background:var(--surface);color:var(--ink);border:1.5px solid var(--blue);
+  border-radius:3px;padding:9px 16px;font:700 14.5px var(--font-body);cursor:pointer;margin-top:14px;margin-right:10px}
+.btn:hover{background:var(--glow)}
+.actions{display:flex;gap:22px;flex-wrap:wrap;margin-top:44px;padding-top:18px;border-top:1px solid var(--rule)}
+.link{background:none;border:none;color:var(--blue);font:700 15px var(--font-body);cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+.csv{display:none;margin-top:16px}
+.csv.on{display:block}
+.csv textarea{width:100%;min-height:180px;background:var(--surface);color:var(--ink);border:1px solid var(--rule);border-radius:3px;padding:10px;font:12.5px/1.5 var(--font-file)}
+.csv-row{display:flex;gap:14px;align-items:center;margin-top:8px;font-size:14px;color:var(--ink-3)}
+.msg{font-size:14px;color:var(--ink-3);margin-top:10px}
+
+footer{border-top:1px solid var(--rule);margin-top:20px;padding-block:20px 34px;color:var(--ink-3);font-size:13.5px}
+footer p{max-width:80ch}
+footer b{color:var(--ink-2)}
+
+@media print{
+  :root{--bg:#fff;--surface:#fff;--glow:#fff;--ink:#111;--ink-2:#333;--ink-3:#555;--rule:#bbb;color-scheme:light}
+  body{background:#fff;font-size:11pt}
+  header,.start,.working,.actions,.csv,.btn,footer{display:none!important}
+  .results{display:block!important;padding:0}
+  .rephead{display:block;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:18px}
+  .rephead h2{font:800 18pt var(--font-display)}
+  .rephead p{font-size:9.5pt;color:#333}
+  .block{margin-top:22px;break-inside:avoid}
+  .pair:nth-child(n+5){display:none}
+  .lightbox{box-shadow:none}
+  .chart svg{min-width:0}
+}
+@media (max-width:860px){ .start{grid-template-columns:1fr;gap:34px} .readout{grid-template-columns:1fr} }
+@media (max-width:640px){
+  .pair{grid-template-columns:1fr;gap:10px}
+  .side.b{text-align:left}
+  .side.b .marker{right:auto;left:8px}
+  .gap{flex-direction:row;padding:0;gap:10px;min-width:0;justify-content:flex-start}
+  .gap-bar{display:none}
+  .layout dl{grid-template-columns:1fr;gap:2px}
+  .layout dd{margin-bottom:8px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap mast">
+    <svg class="mark" viewBox="0 0 120 54" aria-hidden="true">
+      <line class="split" x1="60" y1="2" x2="60" y2="52"/>
+      <path d="M4 44 H24 L33 8 L42 44 H50.5"/>
+      <path class="twin" d="M69.5 44 H78 L87 8 L96 44 H116"/>
+    </svg>
+    <span class="word">EchoTrace</span>
+    <span class="tag">Clarity before trust. The same patient can echo across the training and test sets of a medical imaging dataset. EchoTrace finds them, even after patient IDs are deleted, and fixes the split.</span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="start" id="start">
+    <div>
+      <h1 class="q">Is the test patient already in the training set?</h1>
+
+      <figure class="trace" aria-label="Diagram: one patient's scan pattern appears in the training set and again in the test set">
+        <svg viewBox="0 0 640 132">
+          <line class="divider" x1="330" y1="6" x2="330" y2="104"/>
+          <text x="10" y="20">training set</text>
+          <text x="346" y="20">test set</text>
+          <path class="base" d="M0 96 H40 L46 70 L52 96 H96 L102 50 L108 96 H150 L156 78 L162 96 H200 L204 88 L208 96 H250 L256 62 L262 96 H330"/>
+          <path class="echo" d="M200 96 H214 L219 34 L224 96 L229 58 L234 96 L238 82 L242 96 H250"/>
+          <path class="base" d="M330 96 H372 L378 74 L384 96 H420 L424 86 L428 96 H470 L476 66 L482 96 H530 L536 80 L542 96 H640"/>
+          <path class="echo" d="M552 96 H566 L571 34 L576 96 L581 58 L586 96 L590 82 L594 96 H602"/>
+          <path class="link" d="M224 30 C 320 -6, 476 -6, 576 30"/>
+          <text class="hot" x="400" y="124">same patient, both sides</text>
+        </svg>
+      </figure>
+
+      <p class="lede">One scan session makes many near-identical images of one patient. If they are split carelessly, a model is tested on someone it has already seen, and its score measures memory, not diagnosis. EchoTrace compares the images themselves and flags pairs too similar to come from different patients.</p>
+
+      <div class="picks">
+      <button class="pick" id="pick" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Choose a dataset folder
+      </button>
+      <button class="pick alt" id="pickZip" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z M11 3v2h2v2h-2v2h2v2h-2v2"/></svg>
+        Open a .zip file
+      </button>
+      </div>
+      <p class="droptip">Or drag a folder or a .zip file onto this page.</p>
+      <input type="file" id="dir" webkitdirectory directory multiple hidden>
+      <input type="file" id="zipin" accept=".zip,application/zip" hidden>
+      <label class="opt"><input type="checkbox" id="mask"><span><b>Ignore borders and on-screen text.</b> Compares only the central tissue area, so black borders, probe outlines, labels and calipers can't make unrelated scans look alike. Recommended for ultrasound.</span></label>
+      <p class="privacy">Everything runs on this computer. No image is uploaded, copied or sent anywhere.</p>
+      <p class="err" id="err" role="alert"></p>
+
+      <div class="layout">
+        <h2>How to arrange the folder</h2>
+        <dl>
+          <dt>Check a split</dt><dd>Put images in folders named <span class="file">train</span> and <span class="file">test</span> (or <span class="file">val</span>), at any depth. Without them, EchoTrace splits the images itself the usual way (80/20 at random, image by image) and shows what that split would leak.</dd>
+          <dt>Memorisation score</dt><dd>Put each class in its own folder inside them, for example <span class="file">train/benign</span>.</dd>
+          <dt>Check accuracy</dt><dd>Give each patient a folder, or name files like <span class="file">PATIENT001_scan2.png</span>.</dd>
+          <dt>Formats</dt><dd>PNG, JPEG, BMP, WebP, GIF and TIFF where the browser supports it. Masks named <span class="file">_mask</span> or <span class="file">_gt</span> are skipped.</dd>
+        </dl>
+      </div>
+    </div>
+
+    <aside class="cases" aria-label="Datasets checked so far">
+      <h2>Datasets checked so far</h2>
+      <p>Public datasets used to test medical AI.</p>
+      <div class="case">
+        <div class="case-name">MMOTU ovarian ultrasound, official split</div>
+        <div class="case-big">11–17%</div>
+        <p>of test images (51 to 81 of 469) have a near-copy in training, in a split described as patient-separated.</p>
+      </div>
+      <div class="case">
+        <div class="case-name">Kaggle and Hugging Face brain MRI</div>
+        <div class="case-big">200 of 200</div>
+        <p>test patients also appear in training. Kept apart, the same classifier falls from 99.4% to 51.4%.</p>
+      </div>
+      <div class="case">
+        <div class="case-name">"Best Alzheimer's MRI Dataset 99% Accuracy"</div>
+        <div class="case-big">99.8%</div>
+        <p>with no learning at all, by copying the nearest training image. With patients kept apart: 50%.</p>
+      </div>
+      <div class="case">
+        <div class="case-name">BUSI breast ultrasound, against a hand-checked list</div>
+        <div class="case-big good">97.5%</div>
+        <p>of EchoTrace's flags were correct, and it found 95% of the duplicates.</p>
+      </div>
+    </aside>
+  </section>
+
+  <section class="working" id="working" aria-live="polite">
+    <div class="count" id="count">0 <em>images read</em></div>
+    <div class="phase" id="phase">Reading folder…</div>
+    <div class="track"><div class="fill" id="fill"></div></div>
+  </section>
+
+  <section class="results" id="results">
+    <div class="rephead" id="rephead"></div>
+    <div class="verdict" id="verdict">
+      <div class="readout">
+        <div class="rate" id="rate">—</div>
+        <p class="rate-sub" id="rateSub"></p>
+      </div>
+      <div class="pills" id="pills"></div>
+    </div>
+
+    <div class="block">
+      <div class="bh"><div class="bt" id="chartTitle">How close each image's best match is</div><div class="bn">Spikes past the line are flagged.</div></div>
+      <div class="chart" id="chart"></div>
+      <p class="chart-note" id="chartNote"></p>
+    </div>
+
+    <div class="block" id="memo" style="display:none">
+      <div class="bh"><div class="bt">Memorisation score</div><div class="bn">What a "model" that learns nothing would score: it just copies the label of the most similar training image.</div></div>
+      <div class="duo" id="memoBody"></div>
+      <p class="tnote" id="memoNote"></p>
+    </div>
+
+    <div class="block" id="short" style="display:none">
+      <div class="bh"><div class="bt">Shortcut check</div><div class="bn">Can the label be guessed without looking at the body? Groups of near-copies are kept together, so copies can't help.</div></div>
+      <div class="duo" id="shortBody"></div>
+      <p class="tnote" id="shortNote"></p>
+    </div>
+
+    <div class="block" id="evidence">
+      <div class="bh"><div class="bt" id="evTitle">Matched pairs</div><div class="bn" id="evNote"></div></div>
+      <div class="lightbox" id="pairs"></div>
+      <p class="more" id="more"></p>
+    </div>
+
+    <div class="block">
+      <div class="bh"><div class="bt">Both measures</div><div class="bn">The hash rows match the preregistered EchoTrace study, so results can be compared.</div></div>
+      <div class="tw"><table>
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table></div>
+    </div>
+
+    <div class="block" id="gt"></div>
+
+    <div class="block" id="fix">
+      <div class="bh"><div class="bt">Fix my split</div><div class="bn" id="fixNote"></div></div>
+      <p class="tnote" id="fixBody"></p>
+      <button class="btn" id="dlFix" type="button">Download fair split (CSV)</button>
+      <button class="btn" id="showFix" type="button">Show it as text</button>
+    </div>
+
+    <div class="actions">
+      <button class="link" id="printRep" type="button">Save audit report</button>
+      <button class="link" id="showCsv" type="button">Show flagged pairs as CSV</button>
+      <button class="link" id="again" type="button">Check another folder</button>
+    </div>
+    <p class="msg" id="repMsg"></p>
+    <div class="csv" id="csv">
+      <textarea id="csvText" readonly aria-label="CSV text"></textarea>
+      <div class="csv-row"><button class="link" id="copyCsv" type="button">Copy</button><span id="copyMsg"></span></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><b>EchoTrace</b>, made by Arittra Ghosh at Bunclody Community College, Co. Wexford, for the Stripe Young Scientist &amp; Technology Exhibition 2027. Free and open source under the MIT licence.</p>
+  </div>
+</footer>
+
+<script>
+'use strict';
+
+const SIZE = 32, DIM = SIZE * SIZE;
+const ALPHA = 0.01;          // chance a non-copy image is flagged
+const SAMPLE = 200000;       // random pairs used to learn what "unrelated" looks like
+const HASH_T = 8, LEVELS = [0, 4, 8, 12];
+const SHOW = 12, MAX_PAIRS = 100000;
+const VERSION = '2.4';
+const FLOOR = 0.80;   // never flag below this similarity; checked against datasets with known patient IDs
+const DETAIL = 0.70;  // fine-detail check: a verified copy must also match in edges and texture (128x128, detail only).
+                      // Knee X-rays of different patients that match overall all score <= 0.61; re-filtered copies score >= 0.87 in 95% of cases.
+const TOPK = 5;       // training candidates checked per test image
+let MASKED = false;   // crop to the central tissue area before comparing
+const IMG_RE = /\.(png|jpe?g|bmp|gif|webp|tiff?)$/i;
+const $ = id => document.getElementById(id);
+const tick = () => new Promise(r => setTimeout(r));
+
+/* ---------- files from a folder, a dropped folder or a .zip (v2.4) ---------- */
+const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', bmp: 'image/bmp', gif: 'image/gif', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff' };
+// a zip entry is read only when needed, so a large zip never sits unpacked in memory
+async function blobOf(f) {
+  if (!f._zip) return f;
+  const ab = await f._zip.async('arraybuffer');
+  return new Blob([ab], { type: MIME[(f.name.split('.').pop() || '').toLowerCase()] || '' });
+}
+let jszipReady = null;
+function loadJSZip() {
+  if (window.JSZip) return Promise.resolve();
+  if (!jszipReady) jszipReady = new Promise((ok, bad) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = ok;
+    s.onerror = () => { jszipReady = null; bad(new Error('Opening .zip files needs an internet connection the first time. Unzip it and choose the folder instead.')); };
+    document.head.appendChild(s);
+  });
+  return jszipReady;
+}
+async function filesFromZip(file) {
+  await loadJSZip();
+  const zip = await JSZip.loadAsync(file);
+  const base = file.name.replace(/\.zip$/i, '') || 'zip';
+  const out = [];
+  zip.forEach((path, entry) => {
+    if (entry.dir || /(^|\/)__MACOSX\//.test(path)) return;
+    const name = path.split('/').pop();
+    if (!name || name.startsWith('._')) return;
+    out.push({ name, webkitRelativePath: base + '/' + path, _zip: entry });
+  });
+  return out;
+}
+// a folder dragged onto the page: walk it and keep each file's path, as the folder picker does
+async function filesFromEntry(entry, path, out) {
+  if (entry.isFile) {
+    const f = await new Promise((ok, bad) => entry.file(ok, bad));
+    try { Object.defineProperty(f, 'webkitRelativePath', { value: path + entry.name }); } catch (e) {}
+    out.push(f);
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    for (;;) {
+      const batch = await new Promise((ok, bad) => reader.readEntries(ok, bad));
+      if (!batch.length) break;
+      for (const e of batch) await filesFromEntry(e, path + entry.name + '/', out);
+    }
+  }
+  return out;
+}
+
+/* ---------- reading an image: 64-bit hash + 32x32 similarity vector ---------- */
+const cv = document.createElement('canvas');
+cv.width = cv.height = SIZE;
+const ctx = cv.getContext('2d', { willReadFrequently: true });
+ctx.imageSmoothingQuality = 'high';
+
+const BASIS = new Float64Array(SIZE * SIZE);
+for (let k = 0; k < SIZE; k++)
+  for (let n = 0; n < SIZE; n++) BASIS[k * SIZE + n] = Math.cos(Math.PI * k * (2 * n + 1) / (2 * SIZE));
+
+function dctLow(g) {
+  const tmp = new Float64Array(SIZE * 8);
+  for (let y = 0; y < SIZE; y++)
+    for (let k = 0; k < 8; k++) {
+      let s = 0;
+      for (let n = 0; n < SIZE; n++) s += g[y * SIZE + n] * BASIS[k * SIZE + n];
+      tmp[y * 8 + k] = s;
+    }
+  const out = new Float64Array(64);
+  for (let k = 0; k < 8; k++)
+    for (let j = 0; j < 8; j++) {
+      let s = 0;
+      for (let n = 0; n < SIZE; n++) s += tmp[n * 8 + j] * BASIS[k * SIZE + n];
+      out[k * 8 + j] = s;
+    }
+  return out;
+}
+
+function readBitmap(bmp, V, row) {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  if (MASKED) { const W = bmp.width, Hh = bmp.height; ctx.drawImage(bmp, W * 0.2, Hh * 0.2, W * 0.6, Hh * 0.65, 0, 0, SIZE, SIZE); }
+  else ctx.drawImage(bmp, 0, 0, SIZE, SIZE);
+  const d = ctx.getImageData(0, 0, SIZE, SIZE).data;
+  const g = new Float64Array(DIM);
+  let mean = 0;
+  for (let i = 0; i < DIM; i++) { g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]; mean += g[i]; }
+  mean /= DIM;
+  let ss = 0;
+  for (let i = 0; i < DIM; i++) { const v = g[i] - mean; ss += v * v; }
+  const norm = Math.sqrt(ss) || 1;
+  for (let i = 0; i < DIM; i++) V[row * DIM + i] = (g[i] - mean) / norm;
+
+  const c = dctLow(g);
+  const rest = Array.from(c.slice(1)).sort((a, b) => a - b);
+  const med = (rest[31] + rest[32]) / 2;
+  let hi = 0, lo = 0;
+  for (let i = 0; i < 32; i++) hi = (hi << 1 | (c[i] > med ? 1 : 0)) >>> 0;
+  for (let i = 32; i < 64; i++) lo = (lo << 1 | (c[i] > med ? 1 : 0)) >>> 0;
+  return [hi >>> 0, lo >>> 0];
+}
+
+/* ---------- fine detail: the image minus a blurred copy of itself (overall brightness and layout removed) ---------- */
+const DN = 128;
+const dcv = document.createElement('canvas');
+dcv.width = dcv.height = DN;
+const dctx = dcv.getContext('2d', { willReadFrequently: true });
+dctx.imageSmoothingQuality = 'high';
+const GK = (() => { const s = 3, r = 9, k = []; let sum = 0; for (let i = -r; i <= r; i++) { const w = Math.exp(-i * i / (2 * s * s)); k.push(w); sum += w; } return k.map(w => w / sum); })();
+
+async function detailVec(file) {
+  const bmp = await createImageBitmap(await blobOf(file));
+  dctx.fillStyle = '#000';
+  dctx.fillRect(0, 0, DN, DN);
+  if (MASKED) dctx.drawImage(bmp, bmp.width * 0.2, bmp.height * 0.2, bmp.width * 0.6, bmp.height * 0.65, 0, 0, DN, DN);
+  else dctx.drawImage(bmp, 0, 0, DN, DN);
+  if (bmp.close) bmp.close();
+  const d = dctx.getImageData(0, 0, DN, DN).data, N = DN * DN, R = (GK.length - 1) / 2;
+  const g = new Float32Array(N), tmp = new Float32Array(N), bl = new Float32Array(N);
+  for (let i = 0; i < N; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  const cl = x => x < 0 ? 0 : x >= DN ? DN - 1 : x;
+  for (let y = 0; y < DN; y++) for (let x = 0; x < DN; x++) { let s = 0; for (let k = -R; k <= R; k++) s += GK[k + R] * g[y * DN + cl(x + k)]; tmp[y * DN + x] = s; }
+  for (let y = 0; y < DN; y++) for (let x = 0; x < DN; x++) { let s = 0; for (let k = -R; k <= R; k++) s += GK[k + R] * tmp[cl(y + k) * DN + x]; bl[y * DN + x] = s; }
+  let mean = 0;
+  for (let i = 0; i < N; i++) { g[i] -= bl[i]; mean += g[i]; }
+  mean /= N;
+  let ss = 0;
+  for (let i = 0; i < N; i++) { g[i] -= mean; ss += g[i] * g[i]; }
+  const nr = Math.sqrt(ss) || 1;
+  for (let i = 0; i < N; i++) g[i] /= nr;
+  return g;
+}
+
+/* ---------- shortcut check: can the label be predicted from file facts alone (no picture content)? ---------- */
+const SHORTCUT_MARGIN = 0.10;
+function fileFacts(file, w, h) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const jpg = ext === 'jpg' || ext === 'jpeg';
+  return [Math.log(w), Math.log(h), Math.log(w / h), jpg ? 1 : 0, ext === 'png' ? 1 : 0, (!jpg && ext !== 'png') ? 1 : 0];
+}
+function shortcutScore(facts, labels, key, folds = 5, k = 5) {
+  const n = facts.length, d = facts[0].length;
+  const mean = new Array(d).fill(0), sd = new Array(d).fill(0);
+  for (const f of facts) for (let j = 0; j < d; j++) mean[j] += f[j] / n;
+  for (const f of facts) for (let j = 0; j < d; j++) sd[j] += (f[j] - mean[j]) ** 2 / n;
+  const Z = facts.map(f => f.map((x, j) => (x - mean[j]) / (Math.sqrt(sd[j]) || 1)));
+  const groups = [...new Set(key.map(String))].sort();
+  let s = 20261108; const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+  for (let i = groups.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [groups[i], groups[j]] = [groups[j], groups[i]]; }
+  const foldOf = new Map(groups.map((g, i) => [g, i % folds]));
+  const fold = key.map(g => foldOf.get(String(g)));
+  const pred = new Array(n);
+  for (let q = 0; q < folds; q++) {
+    const tr = [], te = [];
+    for (let i = 0; i < n; i++) (fold[i] === q ? te : tr).push(i);
+    if (!te.length || tr.length < k) continue;
+    for (const i of te) {
+      const best = [];
+      for (const t of tr) {
+        let dist = rnd() * 1e-9;
+        for (let j = 0; j < d; j++) dist += (Z[i][j] - Z[t][j]) ** 2;
+        if (best.length < k) { best.push([dist, t]); best.sort((a, b) => a[0] - b[0]); }
+        else if (dist < best[k - 1][0]) { best[k - 1] = [dist, t]; best.sort((a, b) => a[0] - b[0]); }
+      }
+      const votes = new Map();
+      for (const [, t] of best) votes.set(labels[t], (votes.get(labels[t]) || 0) + 1);
+      pred[i] = [...votes.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))[0][0];
+    }
+  }
+  const classes = [...new Set(labels)];
+  const rec = classes.map(c => { let tot = 0, ok = 0; for (let i = 0; i < n; i++) if (labels[i] === c) { tot++; if (pred[i] === c) ok++; } return ok / tot; });
+  return { ba: rec.reduce((a, b) => a + b, 0) / rec.length, chance: 1 / classes.length };
+}
+
+function popcount(v) {
+  v = v - ((v >>> 1) & 0x55555555);
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  return (((v + (v >>> 4)) & 0x0F0F0F0F) * 0x01010101) >>> 24;
+}
+const hamming = (a, b) => popcount((a[0] ^ b[0]) >>> 0) + popcount((a[1] ^ b[1]) >>> 0);
+
+function dot(V, i, j) {
+  const a = i * DIM, b = j * DIM;
+  let s = 0;
+  for (let k = 0; k < DIM; k += 4)
+    s += V[a + k] * V[b + k] + V[a + k + 1] * V[b + k + 1] + V[a + k + 2] * V[b + k + 2] + V[a + k + 3] * V[b + k + 3];
+  return s;
+}
+
+/* ---------- the automatic cut-off ---------- */
+function invNorm(p) { // Acklam's approximation to the inverse normal CDF
+  const a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02, 1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00];
+  const b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02, 6.680131188771972e+01, -1.328068155288572e+01];
+  const c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00, -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00];
+  const d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00];
+  const pl = 0.02425;
+  if (p < pl) { const q = Math.sqrt(-2 * Math.log(p)); return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); }
+  if (p > 1 - pl) { const q = Math.sqrt(-2 * Math.log(1 - p)); return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); }
+  const q = p - 0.5, r = q * q;
+  return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+}
+const median = s => s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+
+function learnCutoff(V, n) {
+  const total = n * (n - 1) / 2;
+  const m = Math.max(1, Math.min(SAMPLE, total));
+  const z = new Float64Array(m);
+  let seed = 20261101 >>> 0;
+  const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+  for (let t = 0; t < m; t++) {
+    const i = Math.floor(rnd() * n);
+    let j = Math.floor(rnd() * n);
+    if (j === i) j = (j + 1) % n;
+    z[t] = Math.atanh(Math.max(-0.999999, Math.min(0.999999, dot(V, i, j))));
+  }
+  z.sort();
+  const mu = median(z);
+  const dev = z.map(x => Math.abs(x - mu)).sort();
+  const sd = Math.max(1.4826 * median(dev), 1e-6);
+  const learned = Math.min(Math.tanh(mu + sd * invNorm(1 - ALPHA / Math.max(1, n - 1))), 0.9999);
+  return { cut: Math.max(learned, FLOOR), learned, typical: Math.tanh(mu) };
+}
+
+/* ---------- reading folder structure ---------- */
+function splitOf(file) {
+  const segs = file.webkitRelativePath.split('/').slice(0, -1).map(s => s.toLowerCase());
+  for (const s of segs) {
+    if (/^(train|training|trainset|train_set|train-set)$/.test(s)) return 'train';
+    if (/^(test|testing|testset|test_set|test-set|val|valid|validation)$/.test(s)) return 'test';
+  }
+  return null;
+}
+function detectSubjects(files) {
+  const SPLIT = /^(train|training|test|testing|val|valid|validation|images?|data)$/i;
+  const prefix = files.map(f => { const b = f.name.replace(IMG_RE, ''); return b.includes('_') ? b.split('_')[0] : null; });
+  const folder = files.map(f => { const p = f.webkitRelativePath.split('/'); const last = p.length > 2 ? p[p.length - 2] : null; return last && !SPLIT.test(last) ? last : null; });
+  const plausible = a => {
+    if (a.some(x => x === null)) return false;
+    const c = new Map(); a.forEach(x => c.set(x, (c.get(x) || 0) + 1));
+    if (c.size < 10 || c.size >= a.length) return false;
+    const sizes = [...c.values()].sort((x, y) => x - y);
+    return sizes[Math.floor(sizes.length / 2)] <= 60;
+  };
+  if (plausible(prefix)) return { subj: prefix, how: 'file-name prefix' };
+  if (plausible(folder)) return { subj: folder, how: 'patient folders' };
+  return { subj: null, how: null };
+}
+
+function detectLabels(files, how) {
+  if (how === 'patient folders') return null;
+  const SPLIT = /^(train|training|trainset|train_set|train-set|test|testing|testset|test_set|test-set|val|valid|validation)$/i;
+  const lab = files.map(f => { const p = f.webkitRelativePath.split('/'); const last = p.length > 2 ? p[p.length - 2] : null; return last && !SPLIT.test(last) ? last : null; });
+  if (lab.some(x => x === null)) return null;
+  const c = new Set(lab);
+  return c.size >= 2 && c.size <= 30 ? lab : null;
+}
+
+/* Fix my split: keep every group on one side, keep each class's share of test images */
+function fairSplit(n, key, labels, frac) {
+  const groups = new Map();
+  key.forEach((g, k) => { if (!groups.has(g)) groups.set(g, []); groups.get(g).push(k); });
+  const lab = labels || new Array(n).fill('all');
+  const total = new Map(); lab.forEach(l => total.set(l, (total.get(l) || 0) + 1));
+  const target = new Map(), inTest = new Map();
+  total.forEach((v, l) => { target.set(l, v * frac); inTest.set(l, 0); });
+  let seed = 20261107 >>> 0;
+  const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+  const list = [...groups.values()];
+  for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+  const out = new Array(n);
+  for (const members of list) {
+    const c = new Map(); members.forEach(k => c.set(lab[k], (c.get(lab[k]) || 0) + 1));
+    const maj = [...c.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    const goTest = inTest.get(maj) + members.length / 2 <= target.get(maj);
+    members.forEach(k => { out[k] = goTest ? 'test' : 'train'; if (goTest) inTest.set(lab[k], inTest.get(lab[k]) + 1); });
+  }
+  return { out, nGroups: groups.size, nTest: out.filter(x => x === 'test').length };
+}
+
+function download(name, text) {
+  try {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+    a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ---------- run ---------- */
+let objectUrls = [], lastCsv = '', lastFix = '';
+
+async function run(fileList) {
+  const files = Array.from(fileList)
+    .filter(f => IMG_RE.test(f.name) && !/(_gt|_mask|mask_|annotation)/i.test(f.name))
+    .sort((a, b) => a.webkitRelativePath.localeCompare(b.webkitRelativePath, undefined, { numeric: true }));
+  if (files.length < 2) throw new Error('That folder has fewer than two images. Choose a folder with PNG, JPEG, BMP, WebP or TIFF files.');
+  MASKED = $('mask').checked;
+
+  $('start').style.display = 'none';
+  $('working').classList.add('on');
+  $('fill').style.width = '0%';
+
+  const V = new Float32Array(files.length * DIM);
+  const H = [], kept = [], facts = [];
+  let last = performance.now();
+  for (let i = 0; i < files.length; i++) {
+    try {
+      const bmp = await createImageBitmap(await blobOf(files[i]));
+      H.push(readBitmap(bmp, V, kept.length));
+      kept.push(files[i]);
+      facts.push(fileFacts(files[i], bmp.width, bmp.height));
+      bmp.close();
+    } catch (e) { /* unreadable file: skipped */ }
+    if (performance.now() - last > 60 || i === files.length - 1) {
+      $('count').innerHTML = `${(i + 1).toLocaleString()} <em>of ${files.length.toLocaleString()} images read</em>`;
+      $('fill').style.width = ((i + 1) / files.length * 100) + '%';
+      last = performance.now(); await tick();
+    }
+  }
+  const n = kept.length;
+  if (n < 2) throw new Error('Fewer than two of those files could be read as images.');
+
+  $('phase').textContent = 'Learning how alike unrelated images in this folder are…';
+  await tick();
+  const { cut, learned, typical } = learnCutoff(V, n);
+
+  const split = kept.map(splitOf);
+  const { subj, how } = detectSubjects(kept);
+  const labels = detectLabels(kept, how);
+  // no train/test folders: split the usual way, 80/20 at random image by image (each label keeps its share),
+  // so the report shows what a careless split of this folder would leak (v2.4)
+  let simulated = false;
+  if (!(split.some(s => s === 'train') && split.some(s => s === 'test')) && n >= 10) {
+    simulated = true;
+    let seed = 20261109 >>> 0;
+    const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+    const byLab = new Map();
+    for (let k = 0; k < n; k++) { const l = labels ? labels[k] : 'all'; if (!byLab.has(l)) byLab.set(l, []); byLab.get(l).push(k); }
+    for (const idx of byLab.values()) {
+      for (let i = idx.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [idx[i], idx[j]] = [idx[j], idx[i]]; }
+      const nt = Math.max(1, Math.round(idx.length * 0.2));
+      idx.forEach((k, i) => { split[k] = i < nt ? 'test' : 'train'; });
+    }
+  }
+  const nTrain = split.filter(s => s === 'train').length, nTest = split.filter(s => s === 'test').length;
+  const hasSplit = nTrain > 0 && nTest > 0;
+
+  const best = new Float32Array(n).fill(-2), bestJ = new Int32Array(n).fill(-1);
+  const bestTr = new Float32Array(n).fill(-2), bestTrJ = new Int32Array(n).fill(-1);
+  const flag = new Uint8Array(n);
+  const hashCount = {}, hashImg = {}, hashTest = {};
+  LEVELS.forEach(t => { hashCount[t] = 0; hashImg[t] = new Uint8Array(n); hashTest[t] = new Uint8Array(n); });
+  const gt = { total: 0, autoTp: 0, autoFp: 0, hashTp: 0, hashFp: 0 };
+  const pairs = [];
+  let flaggedPairs = 0;
+  const parent = new Int32Array(n).map((_, k) => k);
+  const find = k => { while (parent[k] !== k) { parent[k] = parent[parent[k]]; k = parent[k]; } return k; };
+  const union = (p, q) => { const a = find(p), b = find(q); if (a !== b) parent[a] = b; };
+
+  const totalPairs = n * (n - 1) / 2;
+  last = performance.now();
+  for (let i = 0; i < n; i++) {
+    const a = i * DIM;
+    for (let j = i + 1; j < n; j++) {
+      const b = j * DIM;
+      let r = 0;
+      for (let k = 0; k < DIM; k += 4)
+        r += V[a + k] * V[b + k] + V[a + k + 1] * V[b + k + 1] + V[a + k + 2] * V[b + k + 2] + V[a + k + 3] * V[b + k + 3];
+      if (r > best[i]) { best[i] = r; bestJ[i] = j; }
+      if (r > best[j]) { best[j] = r; bestJ[j] = i; }
+      const cross = hasSplit && split[i] !== split[j] && split[i] && split[j];
+      let te = -1, tr = -1;
+      if (cross) { te = split[i] === 'test' ? i : j; tr = te === i ? j : i; if (r > bestTr[te]) { bestTr[te] = r; bestTrJ[te] = tr; } }
+      const d = hamming(H[i], H[j]);
+      for (const t of LEVELS) if (d <= t) { hashCount[t]++; hashImg[t][i] = hashImg[t][j] = 1; if (cross) hashTest[t][te] = 1; }
+      const isFlag = r >= cut;
+      if (isFlag) {
+        flaggedPairs++; flag[i] = flag[j] = 1; union(i, j);
+        if (pairs.length < MAX_PAIRS) pairs.push({ i, j, r, d, cross: !!cross });
+      }
+      if (subj) {
+        const same = subj[i] === subj[j];
+        if (same) gt.total++;
+        if (isFlag) same ? gt.autoTp++ : gt.autoFp++;
+        if (d <= HASH_T) same ? gt.hashTp++ : gt.hashFp++;
+      }
+    }
+    if (performance.now() - last > 60) {
+      const done = (i + 1) * (2 * n - i - 2) / 2;
+      $('phase').textContent = `Comparing every pair of images… ${Math.floor(done / totalPairs * 100)}%`;
+      $('fill').style.width = (done / totalPairs * 100) + '%';
+      last = performance.now(); await tick();
+    }
+  }
+
+  // chains: images joined through near-copies (A~B, B~C) form one group
+  const root = Array.from({ length: n }, (_, k) => find(k));
+  const size = new Map(), hasTrain = new Set();
+  root.forEach((r, k) => { size.set(r, (size.get(r) || 0) + 1); if (split[k] === 'train') hasTrain.add(r); });
+  let nGroups = 0; size.forEach(s => { if (s > 1) nGroups++; });
+  let chainHit = 0;
+  if (hasSplit) for (let k = 0; k < n; k++) if (split[k] === 'test' && hasTrain.has(root[k])) chainHit++;
+
+  // the groups used to keep patients apart: real patient labels if present, otherwise near-copy chains
+  const key = subj ? subj : root;
+
+  // safeguard: a group that mixes diagnoses is probably held together by a false link
+  let mixed = 0, largest = 0;
+  {
+    const gl = new Map();
+    size.forEach(v => { if (v > largest) largest = v; });
+    if (labels) {
+      root.forEach((r, k) => { if (!gl.has(r)) gl.set(r, new Set()); gl.get(r).add(labels[k]); });
+      gl.forEach((set, r) => { if (size.get(r) > 1 && set.size > 1) mixed++; });
+    }
+  }
+
+  // memorisation score: accuracy of copying the label of the most similar training image
+  let memo = null;
+  if (hasSplit && labels) {
+    const testIdx = [], trainIdx = [];
+    split.forEach((sp, k) => { if (sp === 'test') testIdx.push(k); else if (sp === 'train') trainIdx.push(k); });
+    const cnt = new Map(); testIdx.forEach(k => cnt.set(labels[k], (cnt.get(labels[k]) || 0) + 1));
+    let ok = 0, okFair = 0, m = 0;
+    $('phase').textContent = 'Measuring the memorisation score…';
+    last = performance.now(); await tick();
+    for (let t = 0; t < testIdx.length; t++) {
+      const i = testIdx[t];
+      if (bestTrJ[i] >= 0) { m++; if (labels[bestTrJ[i]] === labels[i]) ok++; }
+      let bv = -2, bj = -1; const a = i * DIM;
+      for (const j of trainIdx) {
+        if (key[j] === key[i]) continue;
+        const b = j * DIM; let r = 0;
+        for (let k = 0; k < DIM; k += 4) r += V[a + k] * V[b + k] + V[a + k + 1] * V[b + k + 1] + V[a + k + 2] * V[b + k + 2] + V[a + k + 3] * V[b + k + 3];
+        if (r > bv) { bv = r; bj = j; }
+      }
+      if (bj >= 0 && labels[bj] === labels[i]) okFair++;
+      if (performance.now() - last > 60) { $('fill').style.width = ((t + 1) / testIdx.length * 100) + '%'; last = performance.now(); await tick(); }
+    }
+    memo = { copy: m ? ok / m : 0, fair: okFair / testIdx.length, majority: Math.max(...cnt.values()) / testIdx.length, nTest: testIdx.length };
+  }
+
+  // fine-detail check (v2.2): a match counts as a verified copy only if it also matches in edges and texture
+  let verified = 0;
+  if (hasSplit) {
+    const cand = new Map();
+    for (const p of pairs) if (p.cross) {
+      const te = split[p.i] === 'test' ? p.i : p.j, tr = te === p.i ? p.j : p.i;
+      if (!cand.has(te)) cand.set(te, []);
+      cand.get(te).push([tr, p.r]);
+    }
+    for (let i = 0; i < n; i++) if (split[i] === 'test' && bestTr[i] >= cut && !cand.has(i)) cand.set(i, [[bestTrJ[i], bestTr[i]]]);
+    const cache = new Map();
+    const getD = async k => {
+      let v = cache.get(k);
+      if (!v) { v = await detailVec(kept[k]); if (cache.size > 3000) cache.delete(cache.keys().next().value); cache.set(k, v); }
+      return v;
+    };
+    $('phase').textContent = 'Checking each match in fine detail…';
+    let t = 0;
+    last = performance.now(); await tick();
+    for (const [te, list] of cand) {
+      list.sort((a, b) => b[1] - a[1]);
+      for (const [tr] of list.slice(0, TOPK)) {
+        let ds = 0;
+        try { const A = await getD(te), B = await getD(tr); for (let k = 0; k < A.length; k++) ds += A[k] * B[k]; }
+        catch (e) { continue; }
+        if (ds >= DETAIL) { verified++; break; }
+      }
+      t++;
+      if (performance.now() - last > 60) { $('fill').style.width = (t / cand.size * 100) + '%'; last = performance.now(); await tick(); }
+    }
+  }
+
+  // shortcut check (v2.3)
+  let shortcut = null;
+  if (labels && new Set(labels).size > 1) {
+    $('phase').textContent = 'Checking whether file facts give the label away…';
+    await tick();
+    shortcut = shortcutScore(facts, labels, key);
+    shortcut.flag = shortcut.ba - shortcut.chance >= SHORTCUT_MARGIN;
+  }
+
+  // fix my split
+  const frac = hasSplit ? nTest / (nTrain + nTest) : 0.2;
+  const fix = fairSplit(n, key, labels, frac);
+  const gname = new Map(); key.forEach(g => { if (!gname.has(g)) gname.set(g, subj ? g : 'G' + String(gname.size + 1).padStart(5, '0')); });
+  const q = s2 => `"${String(s2 ?? '').replace(/"/g, '""')}"`;
+  lastFix = [simulated ? 'file,echotrace_random_split,label,group,fair_split' : 'file,original_split,label,group,fair_split'].concat(kept.map((f, k) => [q(f.webkitRelativePath), q(split[k] || ''), q(labels ? labels[k] : ''), q(gname.get(key[k])), fix.out[k]].join(','))).join('\n');
+
+  render({ simulated, shortcut, verified, kept, n, cut, learned, typical, split, hasSplit, nTrain, nTest, subj, how, best, bestJ, bestTr, bestTrJ, flag, pairs, flaggedPairs, hashCount, hashImg, hashTest, gt, totalPairs, chainHit, nGroups, labels, mixed, largest, memo, fix, frac });
+}
+
+/* ---------- render ---------- */
+const pct = (a, b) => b ? (a / b * 100) : 0;
+const fmtPct = v => (v >= 10 ? v.toFixed(1) : v.toFixed(2)) + '%';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function render(R) {
+  const { simulated, shortcut, verified, kept, n, cut, learned, typical, split, hasSplit, nTrain, nTest, subj, how, best, bestJ, bestTr, flag, pairs, flaggedPairs, hashCount, hashImg, hashTest, gt, totalPairs, chainHit, nGroups, labels, mixed, largest, memo, fix, frac } = R;
+  const expFalse = ALPHA * (hasSplit ? nTest : n);
+  const expTxt = expFalse < 1 ? 'less than 1' : 'about ' + expFalse.toFixed(1);
+  const top = (kept[0].webkitRelativePath.split('/')[0]) || 'folder';
+  $('rephead').innerHTML = `${document.querySelector('header .mark').outerHTML}<h2>EchoTrace audit report</h2><p>Folder <b>${esc(top)}</b> · ${n.toLocaleString()} images · checked ${new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })} · automatic cut-off r ≥ ${cut.toFixed(3)} (chance of a false flag 1% per image; never below the 0.80 floor) · borders and text ${MASKED ? 'ignored' : 'included'} · EchoTrace ${VERSION}</p>`;
+  $('working').classList.remove('on');
+  $('results').classList.add('on');
+  window.scrollTo({ top: 0 });
+
+  const flaggedImgs = flag.reduce((s, x) => s + x, 0);
+  let testHit = 0;
+  if (hasSplit) for (let i = 0; i < n; i++) if (split[i] === 'test' && bestTr[i] >= cut) testHit++;
+  const headCount = hasSplit ? verified : flaggedImgs;
+  const v = $('verdict');
+  v.className = 'verdict ' + (headCount ? 'hit' : 'ok');
+
+  const simNote = simulated
+    ? `This folder has no train and test folders, so EchoTrace split it the usual way: ${nTest.toLocaleString()} images (20%) picked at random for testing, image by image. ` +
+      (flaggedImgs ? `Across the whole folder, ${flaggedImgs.toLocaleString()} of ${n.toLocaleString()} images have a near-copy. ` : '')
+    : '';
+  if (hasSplit) {
+    $('rate').textContent = verified ? fmtPct(pct(verified, nTest)) : (testHit ? 'No verified copies' : 'No overlap found');
+    $('rateSub').innerHTML = simNote + (verified
+      ? `<b>${verified.toLocaleString()} of ${nTest.toLocaleString()} test images</b> have a verified copy in the training set: they match a training image overall <i>and</i> in fine detail. A model evaluated on this split is ${verified === nTest ? 'entirely' : 'partly'} being tested on images it trained on.` +
+        ` The overall match alone flags ${testHit.toLocaleString()}; by chance alone, ${expTxt} would be expected.` +
+        (chainHit > testHit ? ` Following chains of near-copies, <b>${chainHit.toLocaleString()} test images (${fmtPct(pct(chainHit, nTest))})</b> connect to the training set: most likely the same patients, seen in neighbouring slices or frames.` : '')
+      : testHit
+        ? `${testHit.toLocaleString()} test images look like a training image overall (by chance alone, ${expTxt} would be expected), but <b>none match in fine detail</b>. That usually means different patients whose scans are cropped the same way, as with knee X-rays, rather than copies. This does not prove the split is clean: the same patient scanned on another day can look different.`
+        : `No test image came closer to a training image than the cut-off, across ${(nTrain * nTest).toLocaleString()} train–test comparisons. This does not prove the split is clean: different views of one patient can look unalike.`);
+  } else {
+    $('rate').textContent = headCount ? fmtPct(pct(flaggedImgs, n)) : 'None found';
+    $('rateSub').innerHTML = headCount
+      ? `<b>${flaggedImgs.toLocaleString()} of ${n.toLocaleString()} images</b> have a near-copy elsewhere in this folder; by chance alone, ${expTxt} would be expected. If such pairs end up on both sides of a train/test split, the test is partly measuring memory. Put images in <span class="mono">train</span> and <span class="mono">test</span> folders to check a split directly.`
+      : `No pair of images came closer than the cut-off across ${totalPairs.toLocaleString()} comparisons. Either the folder holds one image per patient, or duplicates were removed before release.`;
+  }
+  const pills = [
+    `<span class="pill">Cut-off <b class="mono">r ≥ ${cut.toFixed(3)}</b>${cut > learned ? ' (raised to the 0.80 floor)' : ''}</span>`,
+    `<span class="pill">Typical unrelated pair <b class="mono">r = ${typical.toFixed(2)}</b></span>`,
+    `<span class="pill"><b>${n.toLocaleString()}</b> images</span>`,
+    hasSplit ? `<span class="pill"><b>${nTrain.toLocaleString()}</b> train · <b>${nTest.toLocaleString()}</b> test${simulated ? ' (random split by EchoTrace)' : ''}</span>` : `<span class="pill">No train/test folders found</span>`,
+    `<span class="pill">Expected false flags <b>${expTxt}</b></span>`,
+    `<span class="pill">Near-copy groups <b>${nGroups.toLocaleString()}</b> · largest <b>${largest.toLocaleString()}</b></span>`,
+    labels ? `<span class="pill">Groups mixing labels <b>${mixed.toLocaleString()}</b></span>` : '',
+    `<span class="pill">Borders and text <b>${MASKED ? 'ignored' : 'included'}</b></span>`,
+    subj ? `<span class="pill">Patients from ${how}: <b>${new Set(subj).size.toLocaleString()}</b></span>` : ''
+  ];
+  $('pills').innerHTML = pills.join('');
+
+  drawChart(R, hasSplit);
+
+  // memorisation score
+  if (memo) {
+    $('memo').style.display = '';
+    $('memoBody').innerHTML = `<div><div class="big2 ${memo.copy - memo.fair > 0.1 ? 'hit' : ''}">${(memo.copy * 100).toFixed(1)}%</div><p>Copying the label of the most similar training image, on this split.</p></div>
+      <div><div class="big2">${(memo.fair * 100).toFixed(1)}%</div><p>The same, but never copying from the same ${subj ? 'patient' : 'near-copy group'}.</p></div>
+      <div><div class="big2 quiet">${(memo.majority * 100).toFixed(1)}%</div><p>Always guessing the most common label.</p></div>`;
+    $('memoNote').textContent = memo.copy - memo.fair > 0.1
+      ? `A real model's score on this split is probably inflated: ${((memo.copy - memo.fair) * 100).toFixed(1)} points can be reached by recognising ${subj ? 'patients' : 'near-copies'} already seen in training, without learning the disease.`
+      : `Copying near-copies gives little advantage on this split.`;
+  } else $('memo').style.display = 'none';
+
+  // shortcut check
+  if (shortcut) {
+    $('short').style.display = '';
+    $('shortBody').innerHTML = `<div><div class="big2 ${shortcut.flag ? 'hit' : ''}">${(shortcut.ba * 100).toFixed(0)}%</div><p>Label predicted from file facts alone: image size, shape and file format, with no picture content.</p></div>
+      <div><div class="big2 quiet">${(shortcut.chance * 100).toFixed(0)}%</div><p>Chance.</p></div>`;
+    $('shortNote').textContent = shortcut.flag
+      ? 'Shortcut warning: a model could score well on this dataset without looking at the anatomy, by reading where or how each image was saved. Check how each class was collected before trusting any accuracy.'
+      : 'No shortcut found: file facts alone do not give the label away.';
+  } else $('short').style.display = 'none';
+
+  // fix my split
+  $('fixNote').textContent = `Keeps each ${subj ? 'patient (from the ' + how + ')' : 'near-copy group'} on one side.`;
+  $('fixBody').innerHTML = `New split: <b>${(n - fix.nTest).toLocaleString()} train</b> and <b>${fix.nTest.toLocaleString()} test</b> images (${(fix.nTest / n * 100).toFixed(1)}% test, target ${(frac * 100).toFixed(1)}%), from ${fix.nGroups.toLocaleString()} groups. No group is on both sides${labels ? ', and each label keeps about the same share of test images' : ''}. ` +
+    (subj ? '' : 'Groups come from image similarity: different-looking images of one patient can still end up on both sides, so this is a minimum fix. Use real patient IDs when you have them.');
+  $('dlFix').textContent = 'Download fair split (CSV)';
+
+  // pairs
+  objectUrls.forEach(URL.revokeObjectURL); objectUrls = [];
+  const box = $('pairs'); box.innerHTML = '';
+  let list = hasSplit ? pairs.filter(p => p.cross) : pairs.slice();
+  list.sort((a, b) => b.r - a.r);
+  $('evidence').style.display = '';
+  if (list.length) {
+    $('evTitle').textContent = hasSplit ? 'Near-copies across the split' : 'Matched pairs';
+    $('evNote').textContent = 'Closest first. r is pixel similarity: 1.000 means identical.';
+    list.slice(0, SHOW).forEach(p => box.appendChild(pairRow(kept, split, subj, p, true)));
+    $('more').textContent = list.length > SHOW ? `${(list.length - SHOW).toLocaleString()} further pairs are in the CSV.` : '';
+  } else {
+    // show the closest pairs anyway, clearly marked as below the cut-off
+    const idx = Array.from({ length: n }, (_, i) => i).filter(i => bestJ[i] > i || bestJ[bestJ[i]] !== i).sort((a, b) => best[b] - best[a]).slice(0, 3);
+    if (idx.length) {
+      $('evTitle').textContent = 'Closest pairs, all below the cut-off';
+      $('evNote').textContent = 'Shown so you can judge for yourself.';
+      idx.forEach(i => box.appendChild(pairRow(kept, split, subj, { i, j: bestJ[i], r: best[i], d: null }, false)));
+      $('more').textContent = '';
+    } else $('evidence').style.display = 'none';
+  }
+
+  // both measures
+  $('thead').innerHTML = `<tr><th>Measure</th><th>Pairs</th><th>Images affected</th>${hasSplit ? '<th>Test images with a training match</th>' : ''}</tr>`;
+  let testAuto = testHit;
+  const rows = [`<tr class="key"><td>Pixel similarity, automatic cut-off (r ≥ ${cut.toFixed(3)})</td><td>${flaggedPairs.toLocaleString()}</td><td>${flaggedImgs.toLocaleString()}</td>${hasSplit ? `<td>${testAuto.toLocaleString()} (${fmtPct(pct(testAuto, nTest))})</td>` : ''}</tr>`];
+  if (hasSplit) rows.push(`<tr><td>Chains of near-copies (same cut-off)</td><td>${nGroups.toLocaleString()} groups</td><td>${flaggedImgs.toLocaleString()}</td><td>${chainHit.toLocaleString()} (${fmtPct(pct(chainHit, nTest))})</td></tr>`);
+  LEVELS.forEach(t => {
+    const imgs = hashImg[t].reduce((s, x) => s + x, 0);
+    const tt = hashTest[t].reduce((s, x) => s + x, 0);
+    rows.push(`<tr><td>Hash, ${t === 0 ? 'identical' : 'within ' + t + ' bits'}${t === HASH_T ? ' (preregistered)' : ''}</td><td>${hashCount[t].toLocaleString()}</td><td>${imgs.toLocaleString()}</td>${hasSplit ? `<td>${tt.toLocaleString()} (${fmtPct(pct(tt, nTest))})</td>` : ''}</tr>`);
+  });
+  $('tbody').innerHTML = rows.join('');
+
+  // ground truth
+  const g = $('gt');
+  if (subj) {
+    const pa = gt.autoTp + gt.autoFp ? gt.autoTp / (gt.autoTp + gt.autoFp) : 0, ra = gt.total ? gt.autoTp / gt.total : 0;
+    const ph = gt.hashTp + gt.hashFp ? gt.hashTp / (gt.hashTp + gt.hashFp) : 0, rh = gt.total ? gt.hashTp / gt.total : 0;
+    g.innerHTML = `<div class="bh"><div class="bt">Checked against the patient labels</div><div class="bn">Patients read from ${how}.</div></div>
+      <div class="tw"><table><thead><tr><th>Measure</th><th>Correct flags</th><th>Wrong flags</th><th>Precision</th><th>Recall</th></tr></thead><tbody>
+      <tr class="key"><td>Pixel similarity, automatic</td><td>${gt.autoTp.toLocaleString()}</td><td>${gt.autoFp.toLocaleString()}</td><td>${pa.toFixed(3)}</td><td>${ra.toFixed(3)}</td></tr>
+      <tr><td>Hash within 8 bits</td><td>${gt.hashTp.toLocaleString()}</td><td>${gt.hashFp.toLocaleString()}</td><td>${ph.toFixed(3)}</td><td>${rh.toFixed(3)}</td></tr>
+      </tbody></table></div>
+      <p class="tnote">EchoTrace formed ${nGroups.toLocaleString()} near-copy groups; the labels name ${new Set(subj).size.toLocaleString()} patients. Precision: of the pairs flagged, how many really are one patient. Recall: of all ${gt.total.toLocaleString()} same-patient pairs, how many were flagged. Recall is usually low, because different views of one patient do not look alike; that is why every overlap figure is a minimum.</p>`;
+  } else {
+    g.innerHTML = `<div class="bh"><div class="bt">No patient labels here</div></div>
+      <p class="tnote">File and folder names carry no patient identifier, so precision and recall cannot be measured on this folder, only how many near-copies exist. Point EchoTrace at a dataset with per-patient folders or <span class="mono">PATIENT_001</span>-style names to measure them.</p>`;
+  }
+
+  // csv
+  const lines = ['image_a,image_b,similarity,hash_bits,split_a,split_b,patient_a,patient_b'];
+  const q = s => `"${String(s ?? '').replace(/"/g, '""')}"`;
+  pairs.slice().sort((a, b) => b.r - a.r).forEach(p => lines.push([q(kept[p.i].webkitRelativePath), q(kept[p.j].webkitRelativePath), p.r.toFixed(4), p.d, q(split[p.i]), q(split[p.j]), q(subj ? subj[p.i] : ''), q(subj ? subj[p.j] : '')].join(',')));
+  lastCsv = lines.join('\n');
+  $('csvText').value = lastCsv;
+  $('csv').classList.remove('on');
+  $('showCsv').textContent = `Show flagged pairs as CSV (${pairs.length.toLocaleString()})`;
+}
+
+function drawChart(R, hasSplit) {
+  const { n, cut, split, best, bestTr } = R;
+  const vals = [];
+  for (let i = 0; i < n; i++) {
+    if (hasSplit) { if (split[i] === 'test' && bestTr[i] > -2) vals.push(bestTr[i]); }
+    else vals.push(best[i]);
+  }
+  $('chartTitle').textContent = hasSplit ? "How close each test image's best training match is" : "How close each image's best match is";
+  if (!vals.length) { $('chart').innerHTML = ''; return; }
+  const sorted = vals.slice().sort((a, b) => a - b);
+  let lo = Math.min(sorted[Math.floor(sorted.length * 0.01)], cut - 0.02);
+  lo = Math.max(-1, Math.floor(lo * 50) / 50);
+  const hi = 1, BINS = 50, w = (hi - lo) / BINS;
+  const counts = new Array(BINS).fill(0);
+  let below = 0;
+  vals.forEach(v => { if (v < lo) { below++; return; } counts[Math.min(BINS - 1, Math.floor((v - lo) / w))]++; });
+  const max = Math.max(...counts, 1);
+  const W = 720, Hh = 248, L = 44, Rr = 16, T = 36, B = 40, pw = W - L - Rr, ph = Hh - T - B;
+  const x = v => L + (v - lo) / (hi - lo) * pw;
+  const y = c => T + ph - c / max * ph;
+  let bars = '';
+  counts.forEach((c, k) => {
+    if (!c) return;
+    const x0 = x(lo + k * w), x1 = x(lo + (k + 1) * w), mid = lo + (k + 0.5) * w;
+    const bw = Math.max(1.6, (x1 - x0) * 0.42), bx = (x0 + x1) / 2 - bw / 2;
+    bars += `<rect x="${bx.toFixed(1)}" y="${y(c).toFixed(1)}" width="${bw.toFixed(1)}" height="${(T + ph - y(c)).toFixed(1)}" rx="0.8" fill="${mid >= cut ? 'var(--red)' : 'var(--ink-3)'}"><title>${c} image${c === 1 ? '' : 's'} with best match r ≈ ${mid.toFixed(3)}</title></rect>`;
+  });
+  // ticks
+  let ticks = '';
+  const step = (hi - lo) > 0.6 ? 0.2 : (hi - lo) > 0.25 ? 0.1 : (hi - lo) > 0.1 ? 0.05 : 0.01;
+  for (let t = Math.ceil(lo / step) * step; t <= hi + 1e-9; t += step) {
+    ticks += `<line x1="${x(t)}" x2="${x(t)}" y1="${T + ph}" y2="${T + ph + 5}" stroke="var(--ink-3)"/><text x="${x(t)}" y="${T + ph + 19}" fill="var(--ink-3)" font-size="12" text-anchor="middle" font-family="Atkinson Hyperlegible, system-ui, sans-serif">${t.toFixed(step < 0.05 ? 2 : (step < 0.1 ? 2 : 1))}</text>`;
+  }
+  const cx = x(cut);
+  const labelRight = cx < L + pw * 0.62;
+  const svg = `<svg viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Histogram of best-match similarity with the automatic cut-off at r = ${cut.toFixed(3)}">
+    <line x1="${L}" x2="${L + pw}" y1="${T + ph}" y2="${T + ph}" stroke="var(--ink)" stroke-width="1.4"/>
+    ${bars}
+    <line x1="${cx}" x2="${cx}" y1="${T - 8}" y2="${T + ph}" stroke="var(--blue)" stroke-width="1.6" stroke-dasharray="5 4"/>
+    <text x="${labelRight ? cx + 6 : cx - 6}" y="${T - 14}" fill="var(--blue)" font-size="13" font-weight="700" text-anchor="${labelRight ? 'start' : 'end'}">automatic cut-off r ≥ ${cut.toFixed(3)}</text>
+    ${ticks}
+    <text x="${L + pw / 2}" y="${Hh - 4}" fill="var(--ink-3)" font-size="11.5" text-anchor="middle">similarity of best match (r)</text>
+    <text x="${L - 8}" y="${T + 4}" fill="var(--ink-3)" font-size="11" text-anchor="end">${max}</text>
+    <text x="${L - 8}" y="${T + ph}" fill="var(--ink-3)" font-size="11" text-anchor="end">0</text>
+  </svg>`;
+  $('chart').innerHTML = svg;
+  const over = vals.filter(v => v >= cut).length;
+  $('chartNote').textContent = `${over.toLocaleString()} of ${vals.length.toLocaleString()} ${hasSplit ? 'test ' : ''}images are past the cut-off.` + (below ? ` ${below.toLocaleString()} with very low best matches are left off the left edge.` : '') + ' A clean dataset shows one hump and nothing past the line; near-copies show up as a separate cluster close to 1.';
+}
+
+function pairRow(kept, split, subj, p, flagged) {
+  const row = document.createElement('div');
+  row.className = 'pair';
+  const side = (idx, cls) => {
+    const url = kept[idx]._zip ? '' : URL.createObjectURL(kept[idx]); if (url) objectUrls.push(url);
+    const parts = kept[idx].webkitRelativePath.split('/');
+    const marker = split[idx] ? `<span class="marker ${split[idx]}">${split[idx]}</span>` : '';
+    return `<div class="side ${cls}">
+      <div class="frame"><img ${url ? `src="${url}"` : `data-z="${idx}"`} alt="${esc(kept[idx].name)}">${marker}</div>
+      <div class="meta file">${esc(kept[idx].name)}</div>
+      <div class="grp">${subj ? 'patient ' + esc(subj[idx]) : esc(parts.slice(0, -1).join('/') || '—')}</div>
+    </div>`;
+  };
+  row.innerHTML = side(p.i, 'a') +
+    `<div class="gap"><div class="gap-bar"></div><div class="gap-n ${flagged ? 'hit' : ''}">${p.r.toFixed(3)}</div>
+     <div class="gap-l">pixel similarity${p.d === null || p.d === undefined ? '' : `<br>hash ${p.d} bits apart`}</div><div class="gap-bar"></div></div>` +
+    side(p.j, 'b');
+  row.querySelectorAll('img[data-z]').forEach(async img => {
+    try { const u = URL.createObjectURL(await blobOf(kept[+img.dataset.z])); objectUrls.push(u); img.src = u; } catch (e) {}
+  });
+  return row;
+}
+
+/* ---------- wiring ---------- */
+async function start(getFiles) {
+  $('err').textContent = '';
+  try {
+    const files = await getFiles();
+    await run(files);
+  } catch (err) {
+    $('working').classList.remove('on');
+    $('start').style.display = '';
+    $('err').textContent = err && err.message ? err.message : 'That could not be opened. Try choosing the folder instead.';
+  }
+}
+const openingZip = async file => {
+  $('results').classList.remove('on');
+  $('start').style.display = 'none';
+  $('working').classList.add('on');
+  $('fill').style.width = '0%';
+  $('phase').textContent = 'Opening the zip file…';
+  await tick();
+  return filesFromZip(file);
+};
+$('pick').onclick = () => $('dir').click();
+$('pickZip').onclick = () => $('zipin').click();
+$('dir').onchange = e => { const f = e.target.files; start(async () => f).then(() => { e.target.value = ''; }); };
+$('zipin').onchange = e => { const f = e.target.files[0]; if (f) start(() => openingZip(f)).then(() => { e.target.value = ''; }); };
+// drag a folder or a .zip onto the page
+let dragDepth = 0;
+const busy = () => $('working').classList.contains('on');
+document.addEventListener('dragenter', e => { e.preventDefault(); if (!busy() && ++dragDepth === 1) document.body.classList.add('dragging'); });
+document.addEventListener('dragleave', e => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
+  if (busy()) return;
+  const dt = e.dataTransfer; if (!dt) return;
+  const items = dt.items ? [...dt.items].filter(it => it.kind === 'file') : [];
+  const entries = items.map(it => it.webkitGetAsEntry ? it.webkitGetAsEntry() : null).filter(Boolean);
+  const plain = [...(dt.files || [])];
+  const zip = plain.find(f => /\.zip$/i.test(f.name));
+  if (zip && plain.length === 1) { start(() => openingZip(zip)); return; }
+  if (entries.some(en => en.isDirectory)) {
+    $('results').classList.remove('on');
+    start(async () => { const out = []; for (const en of entries) await filesFromEntry(en, '', out); return out; });
+    return;
+  }
+  if (plain.length) { $('results').classList.remove('on'); start(async () => plain.map(f => { try { Object.defineProperty(f, 'webkitRelativePath', { value: 'dropped/' + f.name }); } catch (x) {} return f; })); }
+});
+$('again').onclick = () => {
+  $('results').classList.remove('on');
+  $('start').style.display = '';
+  window.scrollTo({ top: 0 });
+};
+$('showCsv').onclick = () => { $('csvText').value = lastCsv; $('csv').classList.add('on'); $('csv').scrollIntoView({ block: 'nearest' }); };
+$('showFix').onclick = () => { $('csvText').value = lastFix; $('csv').classList.add('on'); $('csv').scrollIntoView({ block: 'nearest' }); };
+// In the claude.ai viewer, files are offered through the downloads capability; offline, a normal browser download is used.
+let DL = null;
+if (window.claude && typeof window.claude.use === 'function') window.claude.use('downloads').then(d => { DL = d; }).catch(() => {});
+$('dlFix').onclick = async () => {
+  if (DL) {
+    try { await DL.save({ filename: 'echotrace_fair_split.csv', data: lastFix }); }
+    catch (e) { if (!e || e.code !== 'declined') $('showFix').click(); }
+    return;
+  }
+  if (window.claude) { $('showFix').click(); return; }   // in a viewer without download permission
+  if (!download('echotrace_fair_split.csv', lastFix)) $('showFix').click();
+};
+async function reportHtml() {
+  const clone = $('results').cloneNode(true);
+  clone.querySelectorAll('.actions,.csv,.btn,#repMsg').forEach(e => e.remove());
+  clone.querySelector('.rephead').style.display = 'block';
+  // copy each shown scan into the report as a small JPEG
+  const live = [...$('pairs').querySelectorAll('img')].slice(0, 8), copies = [...clone.querySelectorAll('#pairs img')].slice(0, 8);
+  clone.querySelectorAll('#pairs .pair').forEach((p, k) => { if (k >= 4) p.remove(); });
+  live.forEach((img, k) => {
+    if (!copies[k] || !img.naturalWidth) return;
+    const c = document.createElement('canvas'), s = Math.min(1, 420 / img.naturalWidth);
+    c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    copies[k].src = c.toDataURL('image/jpeg', 0.82);
+  });
+  const css = [...document.querySelectorAll('style')].map(s => s.textContent).join('\n');
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EchoTrace audit report</title><style>${css}
+:root{--bg:#fff;--surface:#F4F7F8;--glow:#FAFCFD;color-scheme:light}.results{display:block!important}.rephead{display:block;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:20px}.rephead h2{font:800 26px var(--font-display)}.rephead p{color:var(--ink-2);font-size:14px}</style></head><body><main class="wrap">${clone.outerHTML}</main><footer><div class="wrap"><p>Made with EchoTrace ${VERSION}. Overlap counts are lower bounds: different-looking images of one patient can be missed.</p></div></footer></body></html>`;
+}
+$('printRep').onclick = async () => {
+  if (!window.claude) { window.print(); return; }          // a normal browser: print or save as PDF
+  if (!DL) { $('repMsg').textContent = 'Saving files is not available in this view. Open EchoTrace as a file on your computer to print the report.'; return; }
+  try { await DL.save({ filename: 'echotrace_audit_report.html', data: await reportHtml() }); $('repMsg').textContent = 'Report saved. Open it in a browser and print it to PDF.'; }
+  catch (e) { if (!e || e.code !== 'declined') $('repMsg').textContent = 'The report could not be saved here.'; }
+};
+$('copyCsv').onclick = async () => {
+  try { await navigator.clipboard.writeText($('csvText').value); $('copyMsg').textContent = 'Copied.'; }
+  catch (e) { $('csvText').select(); $('copyMsg').textContent = 'Copy was blocked here: the text is selected, press Ctrl+C or Cmd+C.'; }
+};
+</script>
+</body>
+</html>
